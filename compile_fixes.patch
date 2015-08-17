@@ -1,0 +1,196 @@
+commit 454d4a50b1bc193f5de499975fe61e301de4d4c1
+Author: Anatol Pomozov <anatol.pomozov@gmail.com>
+Date:   Wed Nov 12 20:16:57 2014 -0800
+
+    Fix Linux Arch compilation
+
+diff --git a/CMake/FindSqlite3.cmake b/CMake/FindSqlite3.cmake
+index 642426c..a7d4b1a 100644
+--- a/CMake/FindSqlite3.cmake
++++ b/CMake/FindSqlite3.cmake
+@@ -1,2 +1,31 @@
+-INCLUDE_DIRECTORIES("${CMAKE_SOURCE_DIR}/third-party/sqlite3")
+-ADD_SUBDIRECTORY("${CMAKE_SOURCE_DIR}/third-party/sqlite3")
++# This code is released under the
++# Apache License Version 2.0 http://www.apache.org/licenses/.
++#
++# Copyright (c) 2012 Louis Dionne
++#
++# Find sqlite3 compression library and includes. This module defines:
++#   sqlite3_INCLUDE_DIRS - The directories containing sqlite3's headers.
++#   sqlite3_LIBRARIES    - A list of sqlite3's libraries.
++#   sqlite3_FOUND        - Whether sqlite3 was found.
++#
++# This module can be controlled by setting the following variables:
++#   sqlite3_ROOT - The root directory where to find sqlite3. If this is not
++#                 set, the default paths are searched.
++
++if(NOT sqlite3_ROOT)
++    find_path(sqlite3_INCLUDE_DIRS sqlite3.h)
++    find_library(sqlite3_LIBRARIES NAMES sqlite3)
++else()
++    find_path(sqlite3_INCLUDE_DIRS sqlite3.h NO_DEFAULT_PATH PATHS ${sqlite3_ROOT})
++    find_library(sqlite3_LIBRARIES NAMES sqlite3 NO_DEFAULT_PATH PATHS ${sqlite3_ROOT})
++endif()
++
++if(sqlite3_INCLUDE_DIRS AND sqlite3_LIBRARIES)
++    set(sqlite3_FOUND TRUE)
++else()
++    set(sqlite3_FOUND FALSE)
++    set(sqlite3_INCLUDE_DIR)
++    set(sqlite3_LIBRARIES)
++endif()
++
++mark_as_advanced(sqlite3_LIBRARIES sqlite3_INCLUDE_DIRS)
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index d2df54c..0d43b69 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -37,15 +37,6 @@ string(TOUPPER "${PLATFORM}" PLATFORM)
+ list(GET PLATFORM 0 OSQUERY_BUILD_OS)
+ list(GET PLATFORM 1 OSQUERY_BUILD_DISTRO)
+ 
+-# Make sure deps were built before compiling
+-execute_process(
+-  COMMAND "${CMAKE_SOURCE_DIR}/tools/provision.sh" check "${CMAKE_BINARY_DIR}"
+-  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+-  OUTPUT_VARIABLE OSQUERY_DEPS_MESSAGE
+-  RESULT_VARIABLE OSQUERY_DEPS_CHECK
+-  OUTPUT_STRIP_TRAILING_WHITESPACE
+-)
+-
+ if(OSQUERY_DEPS_CHECK)
+   string(ASCII 27 Esc)
+   message(WARNING "${Esc}[31m${OSQUERY_DEPS_MESSAGE}${Esc}[m")
+diff --git a/include/osquery/flags.h b/include/osquery/flags.h
+index 7ec812a..73e3944 100644
+--- a/include/osquery/flags.h
++++ b/include/osquery/flags.h
+@@ -16,7 +16,7 @@
+ #include <osquery/registry.h>
+ #include <osquery/status.h>
+ 
+-#define __GFLAGS_NAMESPACE google
++#define __GFLAGS_NAMESPACE gflags
+ 
+ namespace osquery {
+ 
+diff --git a/osquery/CMakeLists.txt b/osquery/CMakeLists.txt
+index 487b8e9..3bdf7bd 100644
+--- a/osquery/CMakeLists.txt
++++ b/osquery/CMakeLists.txt
+@@ -24,31 +24,30 @@ SET(OSQUERY_APPLE_LIBS
+ 
+ # Warning: Do not statically compile unwind
+ SET(OSQUERY_LINUX_LIBS
+-  libgflags.a
+-  libglog.a
+-  librocksdb.a
+-  libthrift.a
+-  libboost_thread.a
+-  libboost_system.a
+-  libboost_filesystem.a
+-  libboost_program_options.a
+-  libboost_regex.a
+-  unwind
++  gflags
++  glog
++  rocksdb
++  thrift
++  boost_thread
++  boost_system
++  boost_filesystem
++  boost_program_options
++  boost_regex
+   udev
+   blkid
+   rt
++  procps
++  z
++  bz2
++  snappy
++  unwind
++  lzma
++  sqlite3
+   dl
+   crypto
+   ssl
+ )
+ 
+-SET(OSQUERY_UBUNTU_LIBS
+-  libz.a
+-  libbz2.a
+-  libsnappy.a
+-  liblzma.a
+-)
+-
+ SET(OSQUERY_CENTOS_LIBS
+   libz.so
+   libbz2.so
+@@ -174,15 +173,6 @@ else()
+   endif()
+ endif()
+ 
+-# Make sure deps were built before compiling
+-execute_process(
+-  COMMAND "${CMAKE_SOURCE_DIR}/tools/provision.sh" check "${CMAKE_BINARY_DIR}"
+-  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+-  OUTPUT_VARIABLE OSQUERY_DEPS_MESSAGE
+-  RESULT_VARIABLE OSQUERY_DEPS_CHECK
+-  OUTPUT_STRIP_TRAILING_WHITESPACE
+-)
+-
+ # Table generation
+ 
+ file(GLOB TABLE_FILES "tables/specs/x/*.table")
+@@ -262,9 +252,6 @@ ADD_SUBDIRECTORY(scheduler)
+ ADD_SUBDIRECTORY(tables)
+ 
+ SET(OSQUERY_LIB_OBJECTS
+-  # Third-party objects
+-  $<TARGET_OBJECTS:osquery_sqlite>
+-
+   # Generated code
+   $<TARGET_OBJECTS:osquery_generated_tables>
+ 
+@@ -318,12 +305,8 @@ if(LINUX)
+   if(UBUNTU)
+     SET(CPACK_GENERATOR "DEB")
+ 
+-    EXECUTE_PROCESS(COMMAND grep DISTRIB_CODENAME /etc/lsb-release OUTPUT_VARIABLE DISTRO)
+-    STRING(REPLACE "DISTRIB_CODENAME=" "" DISTRO ${DISTRO})
+-    STRING(REPLACE "\n" "" DISTRO ${DISTRO})
+-
+-    EXECUTE_PROCESS(COMMAND dpkg --print-architecture OUTPUT_VARIABLE DPKG_ARCH)
+-    STRING(REPLACE "\n" "" DPKG_ARCH ${DPKG_ARCH})
++    SET(DISTRO "Arch")
++    SET(DPKG_ARCH "x86_64")
+ 
+     SET(CPACK_SYSTEM_NAME "${DISTRO}.${DPKG_ARCH}")
+     SET(CPACK_DEBIAN_PACKAGE_ARCHITECTURE ${DPKG_ARCH})
+diff --git a/osquery/filesystem/CMakeLists.txt b/osquery/filesystem/CMakeLists.txt
+index 929969d..4a32cc3 100644
+--- a/osquery/filesystem/CMakeLists.txt
++++ b/osquery/filesystem/CMakeLists.txt
+@@ -4,7 +4,7 @@ if(APPLE)
+   )
+ 
+   ADD_OSQUERY_LINK("-framework Foundation")
+-elseif(UBUNTU OR CENTOS)
++elseif(LINUX)
+   ADD_OSQUERY_LIBRARY(osquery_filesystem_linux
+     linux/proc.cpp
+   )
+diff --git a/tools/tests/flag_test.cpp b/tools/tests/flag_test.cpp
+index b46fa83..1e200e7 100644
+--- a/tools/tests/flag_test.cpp
++++ b/tools/tests/flag_test.cpp
+@@ -21,7 +21,7 @@ DEFINE_string(log_receiver, "", "log_receiver");
+ DEFINE_string(log_path, "", "log_path");
+ 
+ int main(int argc, char* argv[]) {
+-  google::ParseCommandLineFlags(&argc, &argv, true);
++  gflags::ParseCommandLineFlags(&argc, &argv, true);
+   google::InitGoogleLogging(argv[0]);
+   FLAGS_logtostderr = 1;
+ 
